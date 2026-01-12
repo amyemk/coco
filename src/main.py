@@ -18,6 +18,12 @@ from dotenv import load_dotenv
 from src.config.settings import init_settings, get_settings
 from src.db.connection import init_db, get_db
 from src.auth.google_oauth import init_oauth, get_oauth
+from src.sync.coordinator import SyncCoordinator
+
+# APScheduler imports
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 # Load environment variables
 load_dotenv()
@@ -33,6 +39,10 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# Global instances
+scheduler = None
+sync_coordinator = None
+
 
 async def initialize_application():
     """
@@ -42,6 +52,8 @@ async def initialize_application():
     - Initialize integrations
     - Configure scheduler
     """
+    global sync_coordinator
+
     logger.info("initializing_application", version="1.0.0")
 
     # Load configuration
@@ -75,30 +87,151 @@ async def initialize_application():
 
     logger.info("oauth_initialized")
 
-    # TODO: Initialize integrations
-    # TODO: Configure scheduler
+    # Initialize sync coordinator
+    logger.info("initializing_sync_coordinator")
+    sync_coordinator = SyncCoordinator()
+    logger.info("sync_coordinator_initialized")
 
     logger.info("application_initialized")
+
+
+async def sync_gmail_job():
+    """Scheduled job to sync Gmail"""
+    logger.info("scheduled_gmail_sync_started")
+    try:
+        count = sync_coordinator.sync_gmail_only()
+        logger.info("scheduled_gmail_sync_complete", count=count)
+    except Exception as e:
+        logger.error("scheduled_gmail_sync_error", error=str(e))
+
+
+async def sync_calendar_job():
+    """Scheduled job to sync Calendar"""
+    logger.info("scheduled_calendar_sync_started")
+    try:
+        count = sync_coordinator.sync_calendar_only()
+        logger.info("scheduled_calendar_sync_complete", count=count)
+    except Exception as e:
+        logger.error("scheduled_calendar_sync_error", error=str(e))
+
+
+async def sync_coda_job():
+    """Scheduled job to sync Coda"""
+    logger.info("scheduled_coda_sync_started")
+    try:
+        count = sync_coordinator.sync_coda_only()
+        logger.info("scheduled_coda_sync_complete", count=count)
+    except Exception as e:
+        logger.error("scheduled_coda_sync_error", error=str(e))
+
+
+async def generate_briefing_job():
+    """Scheduled job to generate daily briefing"""
+    logger.info("scheduled_briefing_generation_started")
+    # TODO: Phase 4 - Implement briefing generation
+    logger.info("briefing_generation_placeholder_phase_4")
 
 
 async def run_scheduler():
     """
     Run the scheduler for periodic tasks:
-    - Daily briefing generation (7 AM)
     - Gmail sync (every 15 minutes)
     - Calendar sync (every 30 minutes)
     - Coda sync (every 60 minutes)
+    - Daily briefing generation (7 AM) - Phase 4
     """
+    global scheduler
+
+    settings = get_settings()
+
     logger.info("starting_scheduler")
 
-    # TODO: Configure APScheduler
-    # TODO: Add jobs for each sync task
-    # TODO: Add job for daily briefing
+    # Create scheduler
+    scheduler = AsyncIOScheduler()
 
-    logger.info("scheduler_started_placeholder_mode")
+    # Get scheduler config
+    scheduler_config = settings.config.scheduler
+
+    # Add Gmail sync job (every N minutes)
+    gmail_job = scheduler_config.jobs.get("gmail_sync")
+    if gmail_job and gmail_job.enabled and gmail_job.interval_minutes:
+        scheduler.add_job(
+            sync_gmail_job,
+            trigger=IntervalTrigger(minutes=gmail_job.interval_minutes),
+            id="gmail_sync",
+            name="Gmail Sync",
+            replace_existing=True,
+        )
+        logger.info("gmail_sync_job_scheduled", interval_minutes=gmail_job.interval_minutes)
+
+    # Add Calendar sync job (every N minutes)
+    calendar_job = scheduler_config.jobs.get("calendar_sync")
+    if calendar_job and calendar_job.enabled and calendar_job.interval_minutes:
+        scheduler.add_job(
+            sync_calendar_job,
+            trigger=IntervalTrigger(minutes=calendar_job.interval_minutes),
+            id="calendar_sync",
+            name="Calendar Sync",
+            replace_existing=True,
+        )
+        logger.info("calendar_sync_job_scheduled", interval_minutes=calendar_job.interval_minutes)
+
+    # Add Coda sync job (every N minutes)
+    coda_job = scheduler_config.jobs.get("coda_sync")
+    if coda_job and coda_job.enabled and coda_job.interval_minutes:
+        scheduler.add_job(
+            sync_coda_job,
+            trigger=IntervalTrigger(minutes=coda_job.interval_minutes),
+            id="coda_sync",
+            name="Coda Sync",
+            replace_existing=True,
+        )
+        logger.info("coda_sync_job_scheduled", interval_minutes=coda_job.interval_minutes)
+
+    # Add daily briefing job (Phase 4 - placeholder for now)
+    briefing_job = scheduler_config.jobs.get("daily_briefing")
+    if briefing_job and briefing_job.enabled and briefing_job.time:
+        hour, minute = briefing_job.time.split(":")
+        scheduler.add_job(
+            generate_briefing_job,
+            trigger=CronTrigger(hour=int(hour), minute=int(minute)),
+            id="daily_briefing",
+            name="Daily Briefing Generation",
+            replace_existing=True,
+        )
+        logger.info("daily_briefing_job_scheduled", time=briefing_job.time)
+
+    # Start the scheduler
+    scheduler.start()
+
+    logger.info("scheduler_started")
     print("\n✅ Application initialized successfully!")
     print("📋 Phase 1 (Foundation) complete - Database and OAuth ready")
-    print("⏳ Phase 2 (Data Integration) - Coming next")
+    print("✅ Phase 2 (Data Integration) complete - Gmail, Calendar, Coda sync active")
+    print("")
+    print("Scheduled Jobs:")
+    if gmail_job and gmail_job.enabled:
+        print(f"  • Gmail sync: every {gmail_job.interval_minutes} minutes")
+    else:
+        print("  • Gmail sync: disabled")
+
+    if calendar_job and calendar_job.enabled:
+        print(f"  • Calendar sync: every {calendar_job.interval_minutes} minutes")
+    else:
+        print("  • Calendar sync: disabled")
+
+    if coda_job and coda_job.enabled:
+        print(f"  • Coda sync: every {coda_job.interval_minutes} minutes")
+    else:
+        print("  • Coda sync: disabled")
+
+    if briefing_job and briefing_job.enabled:
+        print(f"  • Daily briefing: {briefing_job.time} (Phase 4 - placeholder)")
+    else:
+        print("  • Daily briefing: disabled")
+
+    print("")
+    print("⏳ Phase 3 (AI Integration) - Next")
     print("\nPress Ctrl+C to stop\n")
 
     # Keep the scheduler running
@@ -119,9 +252,13 @@ async def main():
 
     except KeyboardInterrupt:
         logger.info("application_stopped_by_user")
+        if scheduler:
+            scheduler.shutdown()
         print("\n👋 Application stopped\n")
     except Exception as e:
         logger.error("application_error", error=str(e), exc_info=True)
+        if scheduler:
+            scheduler.shutdown()
         print(f"\n❌ Error: {e}\n")
         sys.exit(1)
 
