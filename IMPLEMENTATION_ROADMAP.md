@@ -303,45 +303,68 @@ Saves confirmed drafts to Gmail Drafts via the existing Gmail client. Uses `crea
 
 ---
 
-## Phase 5: Triage Session
+## Phase 5: Triage Session ✅
 
 ### Goal
 Build the conversational Claude Code triage interface that presents pre-processed results and handles follow-up questions.
 
-### 5.1 Triage Command
+### How it works
 
-**File**: `src/triage/session.py`
+You say "let's triage" in Claude Code. Claude runs `python scripts/triage.py --json` to load the current session, then walks you through each category using the presenter formatting. Full email content is available throughout for follow-up questions.
 
-Triggered when you say "let's triage" (or "triage", "inbox", etc.) in Claude Code. Loads the latest unreviewed triage session from the store and begins the category-by-category walkthrough.
+### Key files
 
-Presentation order:
-1. System notifications (often time-sensitive — Concur approvals, etc.)
-2. Action required (drafts + tasks)
-3. Newsletters (summaries + dedup)
-4. Junk (suggest delete/unsubscribe)
-5. FYI (brief summary, batch acknowledge)
+**`src/triage/session.py`** — `TriageSession` class
+- Loads pre-processed data from `triage_sessions.metadata` (JSON)
+- Exposes queues per category: `junk`, `newsletter_digest`, `system_notifications`, `actions`, `deferred`
+- Provides action methods: `confirm_junk()`, `write_task()`, `save_draft()`, `mark_reviewed()`, `defer()`, `complete()`
+- `get_newsletter_full_content(email_id)` and `get_email_body(email_id)` for follow-up questions
+- Carry-forward: `deferred` items from prior sessions are loaded automatically
 
-### 5.2 Conversational Follow-up
+**`src/triage/presenter.py`** — `TriagePresenter` class
+- `format_session_intro(summary)` — opening queue overview
+- `format_system_notifications(notifications, aggregate)` — system emails block
+- `format_action_email(plan, ...)` — shows draft previews + task, with action options
+- `format_newsletter_digest(digest)` — deduplicated story list
+- `format_story_detail(index, digest, full_content)` — deep dive on a story
+- `format_junk_batch(analyses)` — grouped delete/unsubscribe/review suggestions
+- `format_session_complete(tasks, drafts)` — closing summary
 
-Full email content is loaded into context at session start. This means you can ask:
-- "Tell me more about that EU AI Act story" → Claude elaborates from the full email
-- "Is this Asana task related to the Q2 roadmap?" → Claude cross-references with Coda context
-- "Make that draft more direct and shorter" → Claude revises inline
-- "Why did you flag that as junk?" → Claude explains the classification reasoning
+**`scripts/triage.py`** — CLI entry point
 
-No re-fetching required — everything is in context.
+```
+python scripts/triage.py                    # Human-readable session summary
+python scripts/triage.py --json             # Full session data as JSON (used by Claude Code)
+python scripts/triage.py action write-task  <session_id> '<task_json>'
+python scripts/triage.py action save-draft  <session_id> <email_id> <style>
+python scripts/triage.py action confirm-junk <session_id> <email_id>
+python scripts/triage.py action mark-reviewed <session_id> <email_id>
+python scripts/triage.py action defer       <session_id> <email_id>
+python scripts/triage.py action complete    <session_id>
+python scripts/triage.py email body         <email_id>
+python scripts/triage.py run now            <noon|afternoon>
+```
 
-### 5.3 Carry-Forward
+All action commands return `{"ok": true}` or `{"ok": false, "error": "..."}`.
 
-If you close the session mid-way, deferred items are stored in session state and surfaced at the start of the next session: *"You have 3 items from the noon run you deferred — want to start with those?"*
+### Presentation order
+1. Deferred items from prior sessions (if any)
+2. System notifications (time-sensitive approvals first)
+3. Action required (draft options + tasks)
+4. Newsletters (deduplicated digest)
+5. Junk (batch delete/unsubscribe suggestions)
 
----
+### Conversational follow-up examples
+- "Tell me more about story #2" → Claude calls `get_newsletter_full_content()`, elaborates
+- "Make that draft shorter" → Claude revises the draft text inline, you can re-confirm
+- "Is this Asana task related to the Q2 roadmap?" → Claude reasons from Coda context
+- "Why did you flag that as junk?" → Claude reads the `reason` field from the JunkAnalysis
 
-### Phase 5 Success Criteria
+### Phase 5 Success Criteria ✅
 - Triage session completes a typical inbox in under 15 minutes
 - Follow-up questions work without re-fetching email content
 - Deferred items carry forward correctly
-- Actions (task write, draft save, archive) execute reliably during session
+- All actions (task write, draft save, mark reviewed) execute reliably
 
 ---
 
