@@ -1,109 +1,197 @@
-# 🧠 AI Chief of Staff – V1 PRD
+# Coco – Product Requirements Document
 
 ## tl;dr
-Build a personal AI assistant for a Chief Product Officer that delivers a **Daily Briefing** each morning. The briefing synthesizes tasks, suggests email replies, surfaces key decisions, and reduces cognitive load. Initial integrations: **Gmail, Google Calendar, and Coda**. Primary interaction is via a daily message (email or Slack) and a lightweight UI to view/respond/delegate.
+
+Coco is a personal email automation assistant for a CPO at Digital Science. It runs a background sync continuously, pre-processes emails twice a day (noon + 4pm), then surfaces the results in an interactive Claude Code triage session. You can go deep on anything — ask follow-up questions on a newsletter story, refine a draft reply, get context from Coda — before committing to any action. Tasks land in your Obsidian backlog. Drafts are saved but never sent without you.
 
 ---
 
 ## Goals
 
-### 🎯 Business Goals
-- Reduce time spent switching contexts between tools and threads
-- Improve speed and quality of email/decision-making
-- Create a reusable foundation for future productization
+### Business Goals
+- Eliminate the cognitive overhead of manual inbox triage
+- Surface the right emails at the right time, not just all emails all the time
+- Create a structured, auditable record of actions taken on email
 
-### 🧑‍💼 User Goals
-- Get a daily digest that helps stay on top of priorities
-- Receive help drafting high-leverage emails
-- Be reminded of context, decisions, and open loops without searching
+### User Goals
+- Go through email in focused 10–15 minute sessions, not ad-hoc all day
+- Ask questions about content before deciding what to do with it
+- Have tasks and drafts created automatically, ready to act on
+- Never have Coco take an irreversible action without confirmation
 
-### 🚫 Non-Goals
-- No Slack/Dovetail/Gong integration yet
-- No standalone app or mobile experience
-- No team collaboration or permissions (solo use only)
-
----
-
-## User Stories
-
-- As a CPO, I want to receive a smart Daily Briefing each morning so I can start my day focused.
-- As a CPO, I want feedback on my sent emails so I can improve clarity and tone.
-- As a CPO, I want help drafting replies to high-priority emails to save time.
-- As a CPO, I want my calendar reviewed so I can see follow-up tasks and prep notes.
-- As a CPO, I want key updates from Coda (roadmaps, OKRs) surfaced if there are any changes.
+### Non-Goals
+- No auto-sending emails
+- No auto-deleting emails (suggest only)
+- No Slack integration (yet)
+- No mobile experience
+- No team collaboration or shared access
 
 ---
 
-## User Experience
+## Email Categories
 
-### 1. **Daily Briefing Email/Message** (core UI)
-Delivered at 7AM daily via email or Slack, containing:
+Every email synced from Gmail is classified into one of five categories. All downstream processing flows from this classification.
 
-- 🗂️ **Today's Priorities**: Synthesized from calendar, flagged emails, and open to-dos in Coda
-- 📬 **Smart Email Drafts**: Suggested replies for flagged or high-priority threads (from Gmail)
-- 🎙️ **Meeting Follow-ups**: Tasks or insights extracted from previous day's meetings
-- 📊 **Product Org Changes**: Key Coda doc updates (roadmap shifts, OKR changes, new comments)
-
-### 2. **In-Context Actions**
-- "Draft reply" button opens the AI-suggested email
-- Inline suggestions for rewording, delegation, or prioritization
-- Links to source context (email, calendar, doc)
-
-### 3. **Feedback UI (lightweight)**
-Optional: quick thumbs up/down on AI suggestions to improve future quality
+| Category | Examples | What Coco does |
+|---|---|---|
+| **JUNK** | Marketing, ads, cold outreach, unsolicited | Surfaces suggestion to delete or unsubscribe |
+| **NEWSLETTER** | Subscribed digests, industry news | Summarises, deduplicates across sources |
+| **SYSTEM_NOTIFICATION** | SAP, Concur, Bob/HiBob, Asana, other DS systems | Parses structurally, aggregates into one paragraph |
+| **ACTION_REQUIRED** | Needs a reply or a non-email action from you | Generates draft reply and/or creates Obsidian task |
+| **FYI** | CC'd, informational, no action needed | Summarised briefly, no task or draft generated |
 
 ---
 
-## Narrative
+## Interaction Model
 
-Imagine starting your day with a single message that says:
-> "Good morning — here's what matters today."
+### Background (always running)
+- Gmail syncs every 15 minutes
+- Each new email is classified immediately after sync
+- No pre-processing yet — classification only
 
-It pulls from your inbox, your meetings, and your product docs to give you a clear, prioritized path forward.
-No more bouncing between Gmail, Calendar, and Coda. No more re-reading threads to remember context.
-Your AI Chief of Staff already did the work: it's flagged the decisions you need to make, pre-drafted the email replies, and reminded you why a roadmap item shifted.
+### Pre-processing (noon + 4pm)
+A scheduled job runs at 12:00 and 16:00 in your timezone:
+- Newsletters from the period are summarised and deduplicated across sources
+- System notifications are parsed and aggregated
+- Action emails have drafts generated and tasks queued
+- Junk emails are scored with deletion confidence
+- A short notification email is sent: "Triage ready — 14 emails processed, 3 need your input"
 
-It doesn't just remember what happened — it **understands why it matters**. Over time, it becomes a second brain for your org.
+The noon run covers midnight → 11:59am.
+The 4pm run covers 12:00 → 3:59pm and flags what needs to happen before EOD vs what can wait.
+
+### Triage Session (Claude Code)
+When you're ready, you open Claude Code and say "let's triage" (or similar). Coco presents the pre-processed results by category. You can:
+- Accept, skip, or modify any suggestion
+- Ask follow-up questions about any item ("tell me more about that story", "is this relevant to our roadmap?")
+- Request a different draft tone or approach
+- Add context that changes how Coco handles something
+
+Full email content is available throughout the session, so follow-up questions work without re-fetching anything. The session ends when the queue is clear or you close it.
+
+### What gets actioned during a session
+- **Junk**: You confirm → email gets a "to delete" label in Gmail (actual deletion is your choice)
+- **Newsletters**: You confirm → emails archived, summary optionally saved to Obsidian
+- **System notifications**: Acknowledged → emails archived
+- **Action — reply**: You confirm draft → saved as Gmail draft (not sent)
+- **Action — task**: Created automatically → written to Obsidian `tasks/Backlog.md`
+- **FYI**: You acknowledge → archived
+
+---
+
+## Task Integration
+
+Tasks are written to your Obsidian vault at:
+```
+/Users/akenall/Documents/Obsidian Vault/tasks/Backlog.md
+```
+
+Format uses the Obsidian Tasks plugin syntax:
+```markdown
+- [ ] Reply to Sarah Chen re: Budget sign-off 📅 2026-04-04 #email #coco
+- [ ] Approve expense report – Concur (ref: EXP-2891) 📅 2026-04-03 #system #coco
+- [ ] Review AI Act briefing doc before team meeting 📅 2026-04-07 #research #coco
+```
+
+All Coco-created tasks are tagged `#coco` for easy filtering. Tasks include a source reference (email sender + subject, or system + reference number) and a suggested due date where one is detectable.
+
+The vault path is configurable in `config.yaml` so it can be adjusted without code changes.
+
+---
+
+## System Notification Parsing
+
+Digital Science systems produce highly patterned notification emails. Coco parses these structurally before sending anything to Claude, which keeps costs low and parsing reliable.
+
+| System | Patterns detected |
+|---|---|
+| **Concur** | Expense report submitted / approved / rejected / pending your approval |
+| **SAP** | Purchase order / invoice / workflow approval required |
+| **Bob / HiBob** | Leave request / new joiner / policy update / anniversary |
+| **Asana** | Task assigned to you / task completed / project update / deadline approaching |
+| **Other DS systems** | Falls back to Claude classification |
+
+The triage session presents these as a single aggregated paragraph: *"3 items need your attention: 2 expense reports pending approval in Concur (EXP-2891, EXP-2892), and 1 leave request from [name] in Bob."*
+
+---
+
+## Newsletter Handling
+
+Newsletters are summarised per-email, then deduplicated across all sources in a session window. If three newsletters cover the same story, you see it once with sources noted.
+
+Session-awareness: the noon run and 4pm run do not re-surface content you already reviewed. Each run tracks which newsletter editions were processed so there is no repetition.
+
+---
+
+## Draft Generation
+
+For ACTION_REQUIRED emails that need a reply, Coco generates three draft options:
+1. **Short ACK** — brief acknowledgement, buys time
+2. **Full reply** — substantive response with context from the thread
+3. **Decline / defer** — polite way to push back or postpone
+
+You can ask Coco to adjust tone, add or remove context, or start from scratch. Confirmed drafts are saved to Gmail Drafts. Nothing is sent automatically.
 
 ---
 
 ## Success Metrics
 
-- >80% open rate on Daily Briefing within first hour
-- >50% of AI-generated replies are used or edited (vs ignored)
-- At least 3 tasks surfaced per day that weren't previously tracked manually
-- Subjective feedback: "Feels like it saves me >1 hour/day"
+- Triage sessions complete in under 15 minutes
+- >80% of suggested junk classifications are confirmed correct
+- >50% of generated drafts are used as-is or with minor edits
+- At least 3 tasks per day created that would otherwise have been missed
+- Subjective: "Feels like it saves me 45+ minutes a day"
 
 ---
 
-## Technical Considerations
+## Technical Stack
 
-- **AI Core**: Built with Claude Code Interpreter
-- **Data Storage**: Local or lightweight cloud storage (private, no team access)
-- **Integrations**:
-  - Gmail (OAuth, access to inbox/sent items)
-  - Google Calendar (event read + metadata)
-  - Coda (docs read access via API tokens)
-- **Email Drafting**: Generate drafts, allow copy/edit/send via native Gmail interface
-- **Security**: Local token storage, no external logging
+- **Language**: Python 3.11+
+- **AI**: Anthropic Claude API (claude-sonnet-4-6 for drafts/synthesis, claude-haiku-4-5 for classification/scoring)
+- **Database**: SQLite + FTS5 (local, private)
+- **Integrations**: Gmail OAuth, Google Calendar OAuth, Coda API
+- **Task output**: Obsidian vault (filesystem write)
+- **Draft output**: Gmail Drafts API
+- **Scheduler**: APScheduler
+- **Triage interface**: Claude Code CLI (conversational)
 
 ---
 
-## Milestones & Sequencing
+## Security & Privacy
 
-### Week 1–2: Foundations
-- Set up Claude Code runtime
-- Build Gmail and Calendar OAuth auth flow
-- Parse and index Gmail + Calendar data
+- All data stored locally in SQLite — nothing leaves the machine except API calls
+- OAuth tokens stored locally with encryption
+- No external logging of email content
+- Obsidian vault writes are append-only to `Backlog.md` — no existing notes modified
+- Gmail Drafts API used for draft storage — no SMTP credentials required
 
-### Week 3–4: Daily Briefing MVP
-- Generate a Daily Briefing with mock data
-- Add task synthesis and email reply suggestions
+---
 
-### Week 5–6: Coda Integration + UX Polish
-- Pull changes from key Coda docs
-- Improve UX of email replies (buttons, inline editing)
+## Milestones
 
-### Week 7+: Feedback & Iteration
-- Add simple feedback mechanism
-- Collect usage data + improve quality heuristics
+### Phase 3 — Email Intelligence (next)
+- Claude API client wrapper
+- Email classifier (5 categories)
+- Junk detector with confidence scoring
+- System notification parser (Concur, SAP, Bob, Asana)
+- Newsletter summariser with cross-source deduplication
+- Action processor (draft generator + task creator)
+
+### Phase 4 — Triage Infrastructure
+- Pre-processing jobs at noon + 4pm
+- Obsidian task writer
+- Gmail Draft saver
+- Notification email ("triage ready")
+- Session state tracking (what's been reviewed)
+
+### Phase 5 — Triage Session
+- Claude Code triage interface
+- Queue presentation by category
+- Conversational follow-up support
+- Session completion and carry-forward logic
+
+### Phase 6 — Polish & Feedback
+- Junk sender memory (auto-classify known junk senders)
+- Newsletter subscription quality scoring ("you never read this one")
+- Feedback loop on draft quality
+- Weekly summary: inbox trends, response rate, task completion

@@ -16,30 +16,51 @@ user:
       Jane Doe
       Chief Product Officer
 
-# Daily Briefing Configuration
-briefing:
-  # When to deliver the daily briefing
-  delivery_time: "07:00"  # 24-hour format in user's timezone
+# Triage Configuration
+# Coco pre-processes emails twice daily and surfaces results in an
+# interactive Claude Code session. No emails are sent or deleted automatically.
+triage:
+  # Noon run: covers midnight → 11:59am
+  noon_run:
+    enabled: true
+    time: "12:00"  # 24-hour format in user's timezone
 
-  # How to deliver (email, slack, both)
-  delivery_method: "email"
+  # Afternoon run: covers 12:00 → 3:59pm, flags EOD-urgent items
+  afternoon_run:
+    enabled: true
+    time: "16:00"
+    flag_eod_urgency: true  # Marks items needing same-day action
 
-  # Which sections to include
-  sections:
-    priorities: true
-    email_drafts: true
-    meeting_followups: true
-    coda_updates: true
-    weekly_summary: false  # Only on Mondays
+  # Notification email sent when pre-processing completes
+  notification_email:
+    enabled: true
+    recipient: "jane.doe@company.com"
 
-  # Limits
-  max_priorities: 10
-  max_email_drafts: 5
-  max_meeting_followups: 8
+  # Junk handling
+  junk:
+    # Confidence threshold above which junk is auto-queued (not shown individually)
+    auto_queue_threshold: 0.95
+    # Remember confirmed junk senders to skip API call next time
+    sender_memory: true
 
-  # Filters
-  priority_threshold: 0.6  # Only include items scored above this
-  email_draft_confidence_threshold: 0.7
+  # Newsletter settings
+  newsletters:
+    # Deduplicate stories appearing in multiple newsletters
+    deduplicate_across_sources: true
+    # Track which newsletters you engage with for subscription quality scoring
+    track_engagement: true
+    engagement_review_weeks: 4  # Surface low-engagement newsletters after N weeks
+
+  # Draft generation
+  drafts:
+    # Number of draft options to generate per action email
+    options_count: 3  # short ACK, full reply, decline/defer
+    save_to_gmail_drafts: true  # Never sent automatically
+
+  # Limits per run
+  max_junk_suggestions: 20
+  max_newsletter_summaries: 10
+  max_action_emails: 15
 
 # Gmail Integration
 integrations:
@@ -70,6 +91,20 @@ integrations:
       - "decision needed"
       - "roadmap"
       - "strategy"
+
+    # System notification sender domains — parsed structurally, not sent to Claude
+    system_notification_senders:
+      concur:
+        - "@concur.com"
+        - "noreply@concursolutions.com"
+      sap:
+        - "@sap.com"
+      bob:
+        - "@hibob.com"
+        - "noreply@hibob.com"
+      asana:
+        - "noreply@asana.com"
+        - "mail@asana.com"
 
   # Google Calendar Integration
   calendar:
@@ -137,17 +172,25 @@ ai:
   monthly_budget_usd: 100  # Alert if approaching this
 
   # Model selection by task
+  # Haiku for high-volume, cheap tasks. Sonnet for quality-sensitive tasks.
   models:
-    email_draft: "claude-3-5-sonnet-20241022"
-    priority_scoring: "claude-3-haiku-20240307"  # Faster/cheaper
-    task_extraction: "claude-3-5-sonnet-20241022"
-    context_synthesis: "claude-3-5-sonnet-20241022"
+    classification: "claude-haiku-4-5-20251001"       # Runs on every email
+    system_notification: "claude-haiku-4-5-20251001"  # Fallback only; usually heuristic
+    junk_detection: "claude-haiku-4-5-20251001"
+    newsletter_summary: "claude-sonnet-4-6"
+    email_draft: "claude-sonnet-4-6"
+    context_synthesis: "claude-sonnet-4-6"
 
 # Data Storage
 storage:
   # Database
-  database_path: "./data/ai_chief_of_staff.db"
+  database_path: "./data/coco.db"
   enable_encryption: true
+
+  # Obsidian vault integration
+  obsidian_vault_path: "/Users/akenall/Documents/Obsidian Vault"
+  obsidian_backlog_file: "tasks/Backlog.md"  # Relative to vault root
+  obsidian_task_tag: "#coco"                 # Added to all Coco-created tasks
 
   # Vector store
   vector_store_path: "./data/vectors"
@@ -163,9 +206,8 @@ storage:
   retention:
     emails_days: 90
     calendar_events_days: 60
-    tasks_completed_days: 30
+    triage_sessions_days: 30
     decisions_days: null  # Keep forever
-    briefings_days: 180
 
 # Logging
 logging:
@@ -203,12 +245,20 @@ scheduler:
   timezone: "America/Los_Angeles"
 
   jobs:
-    daily_briefing:
+    # Triage pre-processing (replaces single daily briefing)
+    noon_triage:
       enabled: true
-      time: "07:00"
+      time: "12:00"
       retry_on_failure: true
       max_retries: 3
 
+    afternoon_triage:
+      enabled: true
+      time: "16:00"
+      retry_on_failure: true
+      max_retries: 3
+
+    # Background sync jobs (existing)
     gmail_sync:
       enabled: true
       interval_minutes: 15
@@ -227,13 +277,23 @@ scheduler:
 
 # Feature Flags
 features:
+  # Phase 3
+  email_classification: true
+  junk_detection: true
+  system_notification_parsing: true
+  newsletter_summarization: true
   email_draft_generation: true
-  meeting_action_extraction: true
-  coda_change_detection: true
-  decision_tracking: true
-  delegation_suggestions: false  # Coming soon
-  weekly_summaries: false        # Coming soon
-  web_ui: false                  # Coming soon
+  obsidian_task_writing: true
+
+  # Phase 4
+  triage_session_state: false     # Coming in Phase 4
+  gmail_draft_saving: false       # Coming in Phase 4
+
+  # Phase 6
+  junk_sender_memory: false       # Coming in Phase 6
+  newsletter_engagement_tracking: false
+  weekly_summaries: false
+  web_ui: false
 
 # Advanced Settings
 advanced:
