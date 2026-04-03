@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS emails (
     priority_score REAL DEFAULT 0.0,
     requires_response BOOLEAN DEFAULT 0,
     suggested_reply TEXT,
+    -- Triage classification (Phase 3)
+    email_category TEXT DEFAULT NULL,  -- JUNK | NEWSLETTER | SYSTEM_NOTIFICATION | ACTION_REQUIRED | FYI
+    category_confidence REAL DEFAULT NULL,
+    category_reasoning TEXT DEFAULT NULL,
+    classified_by TEXT DEFAULT NULL,  -- heuristic | claude
+    classified_at DATETIME DEFAULT NULL,
     metadata TEXT,  -- JSON
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -169,6 +175,48 @@ CREATE TABLE IF NOT EXISTS app_state (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Triage sessions (Phase 3+)
+CREATE TABLE IF NOT EXISTS triage_sessions (
+    id TEXT PRIMARY KEY,
+    run_type TEXT NOT NULL,  -- noon | afternoon
+    window_start DATETIME NOT NULL,
+    window_end DATETIME NOT NULL,
+    status TEXT DEFAULT 'pending',  -- pending | processing | ready | reviewed
+    emails_processed INTEGER DEFAULT 0,
+    emails_reviewed INTEGER DEFAULT 0,
+    notification_sent BOOLEAN DEFAULT 0,
+    notification_sent_at DATETIME,
+    -- Counts per category
+    junk_count INTEGER DEFAULT 0,
+    newsletter_count INTEGER DEFAULT 0,
+    system_notification_count INTEGER DEFAULT 0,
+    action_required_count INTEGER DEFAULT 0,
+    fyi_count INTEGER DEFAULT 0,
+    -- Processed item IDs (JSON arrays)
+    junk_email_ids TEXT DEFAULT '[]',
+    newsletter_email_ids TEXT DEFAULT '[]',
+    system_notification_ids TEXT DEFAULT '[]',
+    action_email_ids TEXT DEFAULT '[]',
+    fyi_email_ids TEXT DEFAULT '[]',
+    reviewed_email_ids TEXT DEFAULT '[]',
+    deferred_email_ids TEXT DEFAULT '[]',
+    tasks_created TEXT DEFAULT '[]',  -- Obsidian task references
+    drafts_saved TEXT DEFAULT '[]',   -- Gmail draft IDs
+    metadata TEXT,  -- JSON
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
+-- Junk sender memory (Phase 3+)
+CREATE TABLE IF NOT EXISTS junk_sender_memory (
+    sender_domain TEXT PRIMARY KEY,  -- e.g. "mango.com"
+    sender_email TEXT,               -- specific address if known
+    confirmed_junk_count INTEGER DEFAULT 1,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_confirmed DATETIME DEFAULT CURRENT_TIMESTAMP,
+    auto_classify BOOLEAN DEFAULT 0  -- set true after threshold reached
+);
+
 -- ============================================================================
 -- Full-Text Search Tables (FTS5)
 -- ============================================================================
@@ -213,6 +261,8 @@ CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
 CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority_score DESC);
 CREATE INDEX IF NOT EXISTS idx_emails_flagged ON emails(is_flagged, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_emails_unread ON emails(is_read, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_category ON emails(email_category, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_unclassified ON emails(classified_at) WHERE classified_at IS NULL;
 
 -- Calendar event indexes
 CREATE INDEX IF NOT EXISTS idx_calendar_start ON calendar_events(start_time);

@@ -45,48 +45,81 @@ class UserProfile(BaseModel):
     )
 
 
-class BriefingSections(BaseModel):
-    """Which sections to include in daily briefing"""
+class TriageRunConfig(BaseModel):
+    """Configuration for a single triage run (noon or afternoon)"""
 
-    priorities: bool = True
-    email_drafts: bool = True
-    meeting_followups: bool = True
-    coda_updates: bool = True
-    weekly_summary: bool = False
+    enabled: bool = True
+    time: str = "12:00"
+    retry_on_failure: bool = True
+    max_retries: int = 3
+    flag_eod_urgency: bool = False  # Afternoon run only
 
-
-class BriefingConfig(BaseModel):
-    """Daily briefing configuration"""
-
-    delivery_time: str = "07:00"
-    delivery_method: str = "email"  # email, slack, both
-    sections: BriefingSections = Field(default_factory=BriefingSections)
-    max_priorities: int = 10
-    max_email_drafts: int = 5
-    max_meeting_followups: int = 8
-    priority_threshold: float = 0.6
-    email_draft_confidence_threshold: float = 0.7
-
-    @field_validator("delivery_time")
+    @field_validator("time")
     @classmethod
     def validate_time(cls, v: str) -> str:
-        """Validate time format"""
         try:
             time.fromisoformat(v)
             return v
         except ValueError:
             raise ValueError(f"Invalid time format: {v}. Use HH:MM format.")
 
-    @field_validator("delivery_method")
-    @classmethod
-    def validate_delivery_method(cls, v: str) -> str:
-        """Validate delivery method"""
-        valid_methods = ["email", "slack", "both"]
-        if v not in valid_methods:
-            raise ValueError(
-                f"Invalid delivery method: {v}. Must be one of {valid_methods}"
-            )
-        return v
+
+class TriageNotificationConfig(BaseModel):
+    """Notification email sent when pre-processing completes"""
+
+    enabled: bool = True
+    recipient: str = ""
+
+
+class TriageJunkConfig(BaseModel):
+    auto_queue_threshold: float = 0.95
+    sender_memory: bool = True
+
+
+class TriageNewsletterConfig(BaseModel):
+    deduplicate_across_sources: bool = True
+    track_engagement: bool = True
+    engagement_review_weeks: int = 4
+
+
+class TriageDraftConfig(BaseModel):
+    options_count: int = 3
+    save_to_gmail_drafts: bool = True
+
+
+class TriageConfig(BaseModel):
+    """Twice-daily triage configuration"""
+
+    noon_run: TriageRunConfig = Field(
+        default_factory=lambda: TriageRunConfig(time="12:00")
+    )
+    afternoon_run: TriageRunConfig = Field(
+        default_factory=lambda: TriageRunConfig(time="16:00", flag_eod_urgency=True)
+    )
+    notification_email: TriageNotificationConfig = Field(
+        default_factory=TriageNotificationConfig
+    )
+    junk: TriageJunkConfig = Field(default_factory=TriageJunkConfig)
+    newsletters: TriageNewsletterConfig = Field(default_factory=TriageNewsletterConfig)
+    drafts: TriageDraftConfig = Field(default_factory=TriageDraftConfig)
+    max_junk_suggestions: int = 20
+    max_newsletter_summaries: int = 10
+    max_action_emails: int = 15
+
+
+class SystemNotificationSendersConfig(BaseModel):
+    """Known sender patterns for each DS system"""
+
+    concur: List[str] = Field(
+        default_factory=lambda: ["@concur.com", "noreply@concursolutions.com"]
+    )
+    sap: List[str] = Field(default_factory=lambda: ["@sap.com"])
+    bob: List[str] = Field(
+        default_factory=lambda: ["@hibob.com", "noreply@hibob.com"]
+    )
+    asana: List[str] = Field(
+        default_factory=lambda: ["noreply@asana.com", "mail@asana.com"]
+    )
 
 
 class GmailIntegrationConfig(BaseModel):
@@ -100,6 +133,9 @@ class GmailIntegrationConfig(BaseModel):
     exclude_labels: List[str] = Field(default_factory=lambda: ["SPAM", "TRASH"])
     priority_senders: List[str] = Field(default_factory=list)
     priority_keywords: List[str] = Field(default_factory=list)
+    system_notification_senders: SystemNotificationSendersConfig = Field(
+        default_factory=SystemNotificationSendersConfig
+    )
 
 
 class CalendarIntegrationConfig(BaseModel):
@@ -145,12 +181,14 @@ class IntegrationsConfig(BaseModel):
 
 
 class AIModelsConfig(BaseModel):
-    """Model selection by task"""
+    """Model selection by task — haiku for volume, sonnet for quality"""
 
-    email_draft: str = "claude-3-5-sonnet-20241022"
-    priority_scoring: str = "claude-3-haiku-20240307"
-    task_extraction: str = "claude-3-5-sonnet-20241022"
-    context_synthesis: str = "claude-3-5-sonnet-20241022"
+    classification: str = "claude-haiku-4-5-20251001"
+    system_notification: str = "claude-haiku-4-5-20251001"
+    junk_detection: str = "claude-haiku-4-5-20251001"
+    newsletter_summary: str = "claude-sonnet-4-6"
+    email_draft: str = "claude-sonnet-4-6"
+    context_synthesis: str = "claude-sonnet-4-6"
 
 
 class AIConfig(BaseModel):
@@ -180,7 +218,12 @@ class RetentionConfig(BaseModel):
 class StorageConfig(BaseModel):
     """Storage configuration"""
 
-    database_path: str = "./data/ai_chief_of_staff.db"
+    database_path: str = "./data/coco.db"
+    # Obsidian vault integration
+    obsidian_vault_path: str = ""
+    obsidian_backlog_file: str = "tasks/Backlog.md"
+    obsidian_task_tag: str = "#coco"
+    # Vector store
     vector_store_path: str = "./data/vectors"
     embedding_model: str = "text-embedding-3-small"
     backup_enabled: bool = True
@@ -253,13 +296,22 @@ class SchedulerConfig(BaseModel):
 
 
 class FeaturesConfig(BaseModel):
-    """Feature flags"""
+    """Feature flags by phase"""
 
+    # Phase 3
+    email_classification: bool = True
+    junk_detection: bool = True
+    system_notification_parsing: bool = True
+    newsletter_summarization: bool = True
     email_draft_generation: bool = True
+    obsidian_task_writing: bool = True
+    # Phase 4+
+    triage_session_state: bool = False
+    gmail_draft_saving: bool = False
+    junk_sender_memory: bool = False
+    newsletter_engagement_tracking: bool = False
     meeting_action_extraction: bool = True
     coda_change_detection: bool = True
-    decision_tracking: bool = True
-    delegation_suggestions: bool = False
     weekly_summaries: bool = False
     web_ui: bool = False
 
@@ -281,7 +333,7 @@ class AppConfig(BaseModel):
     """Complete application configuration"""
 
     user: UserProfile
-    briefing: BriefingConfig = Field(default_factory=BriefingConfig)
+    triage: TriageConfig = Field(default_factory=TriageConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
@@ -409,6 +461,14 @@ class Settings:
     def get_vector_store_path(self) -> str:
         """Get vector store path"""
         return self.config.storage.vector_store_path
+
+    def get_obsidian_backlog_path(self) -> str:
+        """Get full path to Obsidian backlog file"""
+        import os
+        return os.path.join(
+            self.config.storage.obsidian_vault_path,
+            self.config.storage.obsidian_backlog_file,
+        )
 
     def is_integration_enabled(self, integration: str) -> bool:
         """
