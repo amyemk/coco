@@ -286,7 +286,8 @@ class SchedulerConfig(BaseModel):
     timezone: str = "America/Los_Angeles"
     jobs: Dict[str, JobConfig] = Field(
         default_factory=lambda: {
-            "daily_briefing": JobConfig(time="07:00"),
+            "noon_triage": JobConfig(time="12:00"),
+            "afternoon_triage": JobConfig(time="16:00"),
             "gmail_sync": JobConfig(interval_minutes=15, time=None),
             "calendar_sync": JobConfig(interval_minutes=30, time=None),
             "coda_sync": JobConfig(interval_minutes=60, time=None),

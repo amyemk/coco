@@ -125,11 +125,48 @@ async def sync_coda_job():
         logger.error("scheduled_coda_sync_error", error=str(e))
 
 
-async def generate_briefing_job():
-    """Scheduled job to generate daily briefing"""
-    logger.info("scheduled_briefing_generation_started")
-    # TODO: Phase 4 - Implement briefing generation
-    logger.info("briefing_generation_placeholder_phase_4")
+async def run_triage_job(run_type: str):
+    """
+    Run the triage pre-processing pipeline (noon or afternoon).
+    Classifies emails, processes each category, stores results, sends notification.
+    """
+    logger.info("triage_job_started", run_type=run_type)
+    try:
+        settings = get_settings()
+        from src.triage.pre_processor import TriagePreProcessor
+        from src.delivery.triage_notification import TriageNotificationSender
+
+        processor = TriagePreProcessor(settings)
+        result = await processor.run(run_type=run_type)
+
+        # Send "triage ready" notification email
+        notifier = TriageNotificationSender(settings)
+        sent = notifier.send(result)
+
+        from src.triage.session_store import TriageSessionStore
+        if sent:
+            TriageSessionStore().mark_notification_sent(result.session_id)
+
+        logger.info(
+            "triage_job_complete",
+            run_type=run_type,
+            session_id=result.session_id,
+            total_processed=result.total_processed,
+            action_items=result.action_items_count,
+            notification_sent=sent,
+        )
+    except Exception as e:
+        logger.error("triage_job_error", run_type=run_type, error=str(e))
+
+
+async def noon_triage_job():
+    """Scheduled noon triage run (covers midnight → noon)."""
+    await run_triage_job("noon")
+
+
+async def afternoon_triage_job():
+    """Scheduled afternoon triage run (covers noon → 4pm)."""
+    await run_triage_job("afternoon")
 
 
 async def run_scheduler():
@@ -188,18 +225,39 @@ async def run_scheduler():
         )
         logger.info("coda_sync_job_scheduled", interval_minutes=coda_job.interval_minutes)
 
-    # Add daily briefing job (Phase 4 - placeholder for now)
-    briefing_job = scheduler_config.jobs.get("daily_briefing")
-    if briefing_job and briefing_job.enabled and briefing_job.time:
-        hour, minute = briefing_job.time.split(":")
+    # Add noon triage job
+    noon_job = scheduler_config.jobs.get("noon_triage")
+    if noon_job and noon_job.enabled and noon_job.time:
+        hour, minute = noon_job.time.split(":")
         scheduler.add_job(
-            generate_briefing_job,
-            trigger=CronTrigger(hour=int(hour), minute=int(minute)),
-            id="daily_briefing",
-            name="Daily Briefing Generation",
+            noon_triage_job,
+            trigger=CronTrigger(
+                hour=int(hour),
+                minute=int(minute),
+                timezone=scheduler_config.timezone,
+            ),
+            id="noon_triage",
+            name="Noon Triage Pre-Processing",
             replace_existing=True,
         )
-        logger.info("daily_briefing_job_scheduled", time=briefing_job.time)
+        logger.info("noon_triage_job_scheduled", time=noon_job.time)
+
+    # Add afternoon triage job
+    afternoon_job = scheduler_config.jobs.get("afternoon_triage")
+    if afternoon_job and afternoon_job.enabled and afternoon_job.time:
+        hour, minute = afternoon_job.time.split(":")
+        scheduler.add_job(
+            afternoon_triage_job,
+            trigger=CronTrigger(
+                hour=int(hour),
+                minute=int(minute),
+                timezone=scheduler_config.timezone,
+            ),
+            id="afternoon_triage",
+            name="Afternoon Triage Pre-Processing",
+            replace_existing=True,
+        )
+        logger.info("afternoon_triage_job_scheduled", time=afternoon_job.time)
 
     # Start the scheduler
     scheduler.start()
@@ -225,13 +283,20 @@ async def run_scheduler():
     else:
         print("  • Coda sync: disabled")
 
-    if briefing_job and briefing_job.enabled:
-        print(f"  • Daily briefing: {briefing_job.time} (Phase 4 - placeholder)")
+    if noon_job and noon_job.enabled:
+        print(f"  • Noon triage:      {noon_job.time} (classify + process emails since midnight)")
     else:
-        print("  • Daily briefing: disabled")
+        print("  • Noon triage:      disabled")
+
+    if afternoon_job and afternoon_job.enabled:
+        print(f"  • Afternoon triage: {afternoon_job.time} (classify + process emails since noon)")
+    else:
+        print("  • Afternoon triage: disabled")
 
     print("")
-    print("⏳ Phase 3 (AI Integration) - Next")
+    print("✅ Phase 3 (AI Intelligence) complete — email classifier, drafts, Obsidian tasks")
+    print("✅ Phase 4 (Triage Infrastructure) complete — pre-processing jobs, notification, session state")
+    print("⏳ Phase 5 (Triage Session) — interactive Claude Code triage interface next")
     print("\nPress Ctrl+C to stop\n")
 
     # Keep the scheduler running
