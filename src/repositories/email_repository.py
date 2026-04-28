@@ -336,6 +336,29 @@ class EmailRepository:
         )
         return result["count"] if result else 0
 
+    def get_oldest_unread_timestamp(self) -> Optional[datetime]:
+        """Return the timestamp of the oldest unread email, or None."""
+        result = self.db.fetchone(
+            "SELECT MIN(timestamp) as ts FROM emails WHERE is_read = 0"
+        )
+        if result and result["ts"]:
+            return datetime.fromisoformat(result["ts"])
+        return None
+
+    def mark_as_read(self, email_id: str) -> None:
+        """Mark a single email as read locally and in Gmail."""
+        self.db.execute(
+            "UPDATE emails SET is_read = 1, updated_at = ? WHERE id = ?",
+            (datetime.utcnow().isoformat(), email_id),
+        )
+        try:
+            from src.integrations.gmail.client import GmailClient
+            gmail = GmailClient()
+            # Remove UNREAD and INBOX labels so email is read + archived
+            gmail.modify_message(email_id, remove_label_ids=["UNREAD", "INBOX"])
+        except Exception as e:
+            logger.warning("gmail_mark_as_read_failed", email_id=email_id, error=str(e))
+
     def delete_old_emails(self, before: datetime) -> int:
         """
         Delete emails older than a specific date.
@@ -366,6 +389,7 @@ class EmailRepository:
         Returns:
             Email object
         """
+        from src.models.email import EmailCategory
         return Email(
             id=row["id"],
             thread_id=row["thread_id"],
@@ -383,5 +407,6 @@ class EmailRepository:
             priority_score=float(row["priority_score"]),
             requires_response=bool(row["requires_response"]),
             suggested_reply=row["suggested_reply"],
+            email_category=EmailCategory(row["email_category"]) if row["email_category"] else None,
             metadata=json.loads(row["metadata"] or "{}"),
         )

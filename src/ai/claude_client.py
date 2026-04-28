@@ -140,10 +140,11 @@ class ClaudeClient:
     ) -> str:
         """
         Like complete(), but appends a JSON instruction and sets temperature=0
-        for more deterministic structured output.
+        for more deterministic structured output. Strips markdown code fences
+        from the response if present.
         """
         json_prompt = prompt + "\n\nRespond with valid JSON only. No markdown, no explanation."
-        return await self.complete(
+        raw = await self.complete(
             prompt=json_prompt,
             model=model,
             system=system,
@@ -151,6 +152,13 @@ class ClaudeClient:
             temperature=0.0,
             use_cache=True,
         )
+        # Strip markdown code fences if Claude wraps the JSON anyway
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            # Remove first line (```json or ```) and last line (```)
+            text = "\n".join(lines[1:-1]).strip()
+        return text
 
     async def _call_with_retry(
         self,

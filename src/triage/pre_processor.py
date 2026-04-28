@@ -203,17 +203,20 @@ class TriagePreProcessor:
         self.system_parser = SystemNotificationParser()
         self.action_processor = ActionProcessor(settings, self.claude)
 
-    async def run(self, run_type: str) -> TriageSessionResult:
+    async def run(self, run_type: str, since: datetime = None) -> TriageSessionResult:
         """
         Execute the full pre-processing pipeline for a triage run.
 
         Args:
             run_type: "noon" or "afternoon"
+            since: Optional override for window start (for catchup runs)
 
         Returns:
             TriageSessionResult with all processed data
         """
         window_start, window_end = self._get_window(run_type)
+        if since is not None:
+            window_start = since
         logger.info(
             "triage_preprocessing_started",
             run_type=run_type,
@@ -317,17 +320,25 @@ class TriagePreProcessor:
     def _get_window(self, run_type: str) -> tuple[datetime, datetime]:
         """
         Determine the email window for this run.
-        Noon: midnight → now
-        Afternoon: last noon → now
+        Always extends back to include the oldest unread email so that
+        no unread mail is missed, regardless of its date.
         """
         now = datetime.utcnow()
         today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         if run_type == "noon":
-            return today_midnight, now
+            window_start = today_midnight
         else:  # afternoon
-            noon = today_midnight.replace(hour=12)
-            return noon, now
+            window_start = today_midnight.replace(hour=12)
+
+        # Extend window to cover all unread emails
+        from src.repositories.email_repository import EmailRepository
+        repo = EmailRepository()
+        oldest_unread = repo.get_oldest_unread_timestamp()
+        if oldest_unread and oldest_unread < window_start:
+            window_start = oldest_unread
+
+        return window_start, now
 
     def _fetch_emails_by_category(
         self, since: datetime, until: datetime

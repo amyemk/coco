@@ -15,6 +15,7 @@ Usage:
   python scripts/triage.py action complete    <session_id>
   python scripts/triage.py email body         <email_id>
   python scripts/triage.py run now            <noon|afternoon>   # Manual trigger
+  python scripts/triage.py run now            noon --since 2026-03-26  # Catchup run from date
 
 All action commands print a JSON result: {"ok": true} or {"ok": false, "error": "..."}
 This lets Claude Code parse results programmatically.
@@ -30,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def _init():
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
     from src.config.settings import init_settings
     from src.db.connection import init_db, get_db
     settings = init_settings()
@@ -39,6 +40,9 @@ def _init():
     info = db.get_db_info()
     if info.get("table_count", 0) == 0:
         db.initialize_schema()
+    # Initialize Google OAuth so Gmail API calls (mark as read, labels) work
+    from src.auth.google_oauth import init_oauth
+    init_oauth(settings.env.google_client_id, settings.env.google_client_secret)
     return settings
 
 
@@ -248,9 +252,17 @@ def cmd_email_body(args: list):
 def cmd_run_now(args: list):
     """Manually trigger a triage pre-processing run."""
     import asyncio
+    from datetime import datetime
+
     run_type = args[0] if args else "noon"
     if run_type not in ("noon", "afternoon"):
         _fail("run_type must be 'noon' or 'afternoon'")
+
+    # Parse optional --since flag
+    since = None
+    for i, arg in enumerate(args):
+        if arg == "--since" and i + 1 < len(args):
+            since = datetime.fromisoformat(args[i + 1])
 
     settings = _init()
     from src.triage.pre_processor import TriagePreProcessor
@@ -259,7 +271,7 @@ def cmd_run_now(args: list):
 
     async def _run():
         processor = TriagePreProcessor(settings)
-        result = await processor.run(run_type=run_type)
+        result = await processor.run(run_type=run_type, since=since)
         notifier = TriageNotificationSender(settings)
         sent = notifier.send(result)
         if sent:

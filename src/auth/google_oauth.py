@@ -27,7 +27,7 @@ GMAIL_SCOPES = [
 ]
 
 CALENDAR_SCOPES = [
-    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar",
 ]
 
 ALL_SCOPES = GMAIL_SCOPES + CALENDAR_SCOPES

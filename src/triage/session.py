@@ -303,12 +303,15 @@ class TriageSession:
         )
         if draft_id:
             self._store.record_draft_saved(self.session_id, draft_id)
+            EmailRepository().mark_as_read(email_id)
         return draft_id
 
     def mark_reviewed(self, email_id: str) -> None:
-        """Mark an email as reviewed in this session."""
+        """Mark an email as reviewed in this session and as read in the database."""
         self._reviewed.add(email_id)
         self._store.mark_email_reviewed(self.session_id, email_id)
+        from src.repositories.email_repository import EmailRepository
+        EmailRepository().mark_as_read(email_id)
 
     def defer(self, email_id: str) -> None:
         """Defer an email to the next session."""
